@@ -1,0 +1,25 @@
+# Crypto Alpha Scanner - AutoGen Configuration
+schedule:
+  interval_minutes: 15
+  scan_hours: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+
+filters:
+  min_transfer_usd: 10000
+  min_liquidity_usd: 50000
+  ignore_contracts: []
+  tracked_networks: ["ethereum", "bsc", "polygon"]
+
+analysis:
+  ai_model: "gpt-4o"
+  min_confidence_score: 65
+  risk_tolerance: "medium"  # low, medium, high
+
+alerts:
+  max_alerts_per_run: 5
+  include_ai_reasoning: true
+  include_chart_links: true
+
+# Agent behavior
+agents:
+  max_consecutive_auto_reply: 3
+  temperature: 0.3
