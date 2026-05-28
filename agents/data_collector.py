@@ -20,20 +20,16 @@ class DataCollectorAgent:
         """Tüm kaynaklardan veri topla"""
         print("[DataCollector] Veri toplanıyor...")
 
-        # 1. Trend token'lar
-        trending = self.dex.get_trending()
+        trending = self._safe_collect("trend token", self.dex.get_trending)
         print(f"  → {len(trending)} trend token bulundu")
 
-        # 2. Yeni token'lar
-        new_tokens = self.dex.get_new_pairs("ethereum")
+        new_tokens = self._safe_collect("yeni token", lambda: self.dex.get_new_pairs("ethereum"))
         print(f"  → {len(new_tokens)} yeni token bulundu")
 
-        # 3. Balina hareketleri (Etherscan)
-        whale_moves = self.etherscan.get_whale_transfers()
+        whale_moves = self._safe_collect("balina hareketi", self.etherscan.get_whale_transfers)
         print(f"  → {len(whale_moves)} balina hareketi bulundu")
 
-        # 4. Reddit sinyalleri
-        reddit_signals = self.reddit.search_crypto("crypto alpha")
+        reddit_signals = self._safe_collect("Reddit sinyali", lambda: self.reddit.search_crypto("crypto alpha"))
         print(f"  → {len(reddit_signals)} Reddit sinyali bulundu")
 
         return {
@@ -43,6 +39,19 @@ class DataCollectorAgent:
             "reddit_signals": reddit_signals,
             "total_tokens": len(trending) + len(new_tokens),
         }
+
+    def _safe_collect(self, label: str, fn):
+        try:
+            result = fn()
+        except Exception as exc:
+            print(f"[DataCollector] {label} kaynağı hata verdi: {exc}")
+            return []
+        if result is None:
+            return []
+        if not isinstance(result, list):
+            print(f"[DataCollector] {label} beklenmeyen veri tipi: {type(result).__name__}")
+            return []
+        return result
 
     def summary(self, data: dict) -> str:
         """Toplanan verinin özet metni"""

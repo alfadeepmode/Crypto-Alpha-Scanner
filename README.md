@@ -332,6 +332,18 @@ data/orchestration_log.jsonl
 
 Bu log sistemin neden AL/SAT/HOLD verdigini ve hangi kapida durdugunu gosterir.
 
+## DexScreener API Katmani
+
+DexScreener entegrasyonu resmi guncel endpointlere gore korunur:
+
+```text
+/latest/dex/search
+/token-profiles/latest/v1
+/token-pairs/v1/{chainId}/{tokenAddress}
+```
+
+Eski/supheli `/latest/dex/trending` ve `/latest/dex/pairs/{chain}` varsayimlarina dogrudan bagimli calismaz. HTTP, JSON parse, bos response ve bozuk numeric alan durumlarinda scanner cokmez; ilgili kaynak bos liste veya `None` doner. Bu katman finansal tavsiye uretmez, sadece veri normalize eder.
+
 ## Testler
 
 Syntax/import kontrolu:

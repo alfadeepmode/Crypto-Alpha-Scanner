@@ -4,3 +4,4 @@ httpx
 pyyaml
 # Optional live trading: ccxt
 # ccxt  # optional: live Binance trading
+pytest
