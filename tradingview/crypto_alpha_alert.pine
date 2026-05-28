@@ -1,0 +1,300 @@
+//@version=5
+indicator("Micro Atomic Clean Signal | LONG SHORT EXIT", overlay=true, max_labels_count=500, dynamic_requests=true)
+
+//══════════════════════════════════════
+// 1) ANA AYARLAR
+//══════════════════════════════════════
+groupMain = "1) Ana Ayarlar"
+
+emaFastLen = input.int(50, "EMA Hızlı", group=groupMain)
+emaSlowLen = input.int(200, "EMA Yavaş", group=groupMain)
+
+rsiLen = input.int(7, "RSI Length", group=groupMain)
+rsiLongMin = input.float(52, "Long RSI Min", group=groupMain)
+rsiLongMax = input.float(78, "Long RSI Max", group=groupMain)
+rsiShortMin = input.float(22, "Short RSI Min", group=groupMain)
+rsiShortMax = input.float(48, "Short RSI Max", group=groupMain)
+
+macdFast = input.int(5, "MACD Fast", group=groupMain)
+macdSlow = input.int(13, "MACD Slow", group=groupMain)
+macdSig = input.int(5, "MACD Signal", group=groupMain)
+
+atrLen = input.int(14, "ATR Length", group=groupMain)
+minAtrPct = input.float(0.20, "Minimum ATR %", step=0.05, group=groupMain)
+
+volLen = input.int(20, "Volume Ortalama", group=groupMain)
+minVolRatio = input.float(1.20, "Minimum Volume Ratio", step=0.05, group=groupMain)
+
+adxLen = input.int(14, "ADX Length", group=groupMain)
+adxSmooth = input.int(14, "ADX Smoothing", group=groupMain)
+adxThreshold = input.float(20, "Minimum ADX", group=groupMain)
+
+minScorePct = input.float(80, "Minimum Giriş Skoru %", minval=50, maxval=100, step=5, group=groupMain)
+
+//══════════════════════════════════════
+// 2) MAKRO AYARLAR
+//══════════════════════════════════════
+groupMacro = "2) Makro Filtre"
+
+useMacroFilter = input.bool(true, "Makro filtre aktif", group=groupMacro)
+minMacroScore = input.float(3.0, "Minimum Makro Skor / 5", minval=0, maxval=5, step=0.5, group=groupMacro)
+
+btcSymbol = input.symbol("BINANCE:BTCUSDT", "BTC", group=groupMacro)
+btcdSymbol = input.symbol("CRYPTOCAP:BTC.D", "BTC Dominance", group=groupMacro)
+total2Sym = input.symbol("CRYPTOCAP:TOTAL2", "TOTAL2", group=groupMacro)
+total3Sym = input.symbol("CRYPTOCAP:TOTAL3", "TOTAL3", group=groupMacro)
+macroTf = input.timeframe("15", "Makro Timeframe", group=groupMacro)
+
+//══════════════════════════════════════
+// 3) ÇIKIŞ / RİSK
+//══════════════════════════════════════
+groupExit = "3) Çıkış ve Risk"
+
+exitMode = input.string("Normal", "Çıkış Hassasiyeti", options=["Agresif", "Normal", "Güvenli"], group=groupExit)
+
+slAtrMult = input.float(1.2, "SL ATR Çarpanı", step=0.1, group=groupExit)
+tp1AtrMult = input.float(1.0, "TP1 ATR Çarpanı", step=0.1, group=groupExit)
+tp2AtrMultInput = input.float(1.8, "TP2 ATR Çarpanı", step=0.1, group=groupExit)
+tp2AtrMult = math.max(tp2AtrMultInput, tp1AtrMult + 0.1)
+
+showEMAs = input.bool(true, "EMA/VWAP göster", group=groupExit)
+showRiskLines = input.bool(false, "TP/SL çizgilerini göster", group=groupExit)
+
+//══════════════════════════════════════
+// 4) ANA HESAPLAMALAR
+//══════════════════════════════════════
+ema50 = ta.ema(close, emaFastLen)
+ema200 = ta.ema(close, emaSlowLen)
+
+rsi = ta.rsi(close, rsiLen)
+
+[macdLine, macdSignal, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
+
+atr = ta.atr(atrLen)
+atrPct = atr / close * 100
+atrOk = atrPct >= minAtrPct
+
+volAvg = ta.sma(volume, volLen)
+volRatio = volume / volAvg
+volOk = volRatio >= minVolRatio
+
+vwap = ta.vwap(hlc3)
+
+[plusDI, minusDI, adx] = ta.dmi(adxLen, adxSmooth)
+adxOk = adx >= adxThreshold
+
+trendLong = ema50 > ema200 and close > ema50
+trendShort = ema50 < ema200 and close < ema50
+
+rsiLongOk = rsi >= rsiLongMin and rsi <= rsiLongMax
+rsiShortOk = rsi >= rsiShortMin and rsi <= rsiShortMax
+
+vwapLongOk = close > vwap
+vwapShortOk = close < vwap
+
+macdLongGate = macdLine > macdSignal and macdLine > macdLine[1]
+macdShortGate = macdLine < macdSignal and macdLine < macdLine[1]
+
+//══════════════════════════════════════
+// 5) MAKRO HESAPLAMALAR
+//══════════════════════════════════════
+f_macroData(sym) =>
+    c = request.security(sym, macroTf, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    e50 = request.security(sym, macroTf, ta.ema(close, emaFastLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    e200 = request.security(sym, macroTf, ta.ema(close, emaSlowLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    [c, e50, e200]
+
+[btcC, btcE50, btcE200] = f_macroData(btcSymbol)
+[btcdC, btcdE50, btcdE200] = f_macroData(btcdSymbol)
+[t2C, t2E50, t2E200] = f_macroData(total2Sym)
+[t3C, t3E50, t3E200] = f_macroData(total3Sym)
+
+btcBull = btcC > btcE50 and btcE50 > btcE200
+btcBear = btcC < btcE50 and btcE50 < btcE200
+
+btcdAltPositive = btcdC < btcdE50
+btcdAltNegative = btcdC > btcdE50
+
+total2Bull = t2C > t2E50 and t2E50 > t2E200
+total2Bear = t2C < t2E50 and t2E50 < t2E200
+
+total3Bull = t3C > t3E50 and t3E50 > t3E200
+total3Bear = t3C < t3E50 and t3E50 < t3E200
+
+macroLongScore = 0.0
+macroLongScore += btcBull ? 2.0 : 0.0
+macroLongScore += btcdAltPositive ? 1.0 : 0.0
+macroLongScore += total2Bull ? 1.0 : 0.0
+macroLongScore += total3Bull ? 1.0 : 0.0
+
+macroShortScore = 0.0
+macroShortScore += btcBear ? 2.0 : 0.0
+macroShortScore += btcdAltNegative ? 1.0 : 0.0
+macroShortScore += total2Bear ? 1.0 : 0.0
+macroShortScore += total3Bear ? 1.0 : 0.0
+
+macroLongOk = not useMacroFilter or macroLongScore >= minMacroScore
+macroShortOk = not useMacroFilter or macroShortScore >= minMacroScore
+
+macroLongContribution = useMacroFilter ? macroLongScore / 5.0 : 0.0
+macroShortContribution = useMacroFilter ? macroShortScore / 5.0 : 0.0
+
+//══════════════════════════════════════
+// 6) SKOR SİSTEMİ
+//══════════════════════════════════════
+scoreMax = 5.0 + (useMacroFilter ? 1.0 : 0.0)
+
+longScore = 0.0
+longScore += trendLong ? 1.0 : 0.0
+longScore += rsiLongOk ? 1.0 : 0.0
+longScore += vwapLongOk ? 1.0 : 0.0
+longScore += volOk ? 1.0 : 0.0
+longScore += adxOk ? 1.0 : 0.0
+longScore += macroLongContribution
+
+shortScore = 0.0
+shortScore += trendShort ? 1.0 : 0.0
+shortScore += rsiShortOk ? 1.0 : 0.0
+shortScore += vwapShortOk ? 1.0 : 0.0
+shortScore += volOk ? 1.0 : 0.0
+shortScore += adxOk ? 1.0 : 0.0
+shortScore += macroShortContribution
+
+longScorePct = longScore / scoreMax * 100
+shortScorePct = shortScore / scoreMax * 100
+
+rawLongSignal = atrOk and macroLongOk and longScorePct >= minScorePct and longScore > shortScore and macdLongGate
+rawShortSignal = atrOk and macroShortOk and shortScorePct >= minScorePct and shortScore > longScore and macdShortGate
+
+//══════════════════════════════════════
+// 7) POZİSYON STATE
+//══════════════════════════════════════
+var bool inLong = false
+var bool inShort = false
+
+var float longSL = na
+var float longTP1 = na
+var float longTP2 = na
+
+var float shortSL = na
+var float shortTP1 = na
+var float shortTP2 = na
+
+longEntry = rawLongSignal and not inLong and not inShort
+shortEntry = rawShortSignal and not inLong and not inShort
+
+//══════════════════════════════════════
+// 8) ÇIKIŞ MANTIĞI
+//══════════════════════════════════════
+longWeakVWAP = close < vwap
+longWeakMACD = macdHist < macdHist[1]
+longWeakRSI = rsi < 50
+
+shortWeakVWAP = close > vwap
+shortWeakMACD = macdHist > macdHist[1]
+shortWeakRSI = rsi > 50
+
+longExitCount = 0
+longExitCount += longWeakVWAP ? 1 : 0
+longExitCount += longWeakMACD ? 1 : 0
+longExitCount += longWeakRSI ? 1 : 0
+
+shortExitCount = 0
+shortExitCount += shortWeakVWAP ? 1 : 0
+shortExitCount += shortWeakMACD ? 1 : 0
+shortExitCount += shortWeakRSI ? 1 : 0
+
+exitNeed = exitMode == "Agresif" ? 1 : exitMode == "Normal" ? 2 : 3
+
+longSLHit = inLong and not na(longSL) and low <= longSL
+longTP2Hit = inLong and not na(longTP2) and high >= longTP2
+longMomentumExit = inLong and longExitCount >= exitNeed
+longReverseExit = inLong and rawShortSignal
+
+shortSLHit = inShort and not na(shortSL) and high >= shortSL
+shortTP2Hit = inShort and not na(shortTP2) and low <= shortTP2
+shortMomentumExit = inShort and shortExitCount >= exitNeed
+shortReverseExit = inShort and rawLongSignal
+
+longExit = inLong and (longSLHit or longTP2Hit or longMomentumExit or longReverseExit)
+shortExit = inShort and (shortSLHit or shortTP2Hit or shortMomentumExit or shortReverseExit)
+
+//══════════════════════════════════════
+// 9) STATE GÜNCELLEME
+//══════════════════════════════════════
+if longExit
+    inLong := false
+    longSL := na
+    longTP1 := na
+    longTP2 := na
+
+if shortExit
+    inShort := false
+    shortSL := na
+    shortTP1 := na
+    shortTP2 := na
+
+if longEntry
+    inLong := true
+    inShort := false
+    longSL := close - atr * slAtrMult
+    longTP1 := close + atr * tp1AtrMult
+    longTP2 := close + atr * tp2AtrMult
+    shortSL := na
+    shortTP1 := na
+    shortTP2 := na
+
+if shortEntry
+    inShort := true
+    inLong := false
+    shortSL := close + atr * slAtrMult
+    shortTP1 := close - atr * tp1AtrMult
+    shortTP2 := close - atr * tp2AtrMult
+    longSL := na
+    longTP1 := na
+    longTP2 := na
+
+//══════════════════════════════════════
+// 10) TEMİZ GRAFİK GÖSTERİMİ
+//══════════════════════════════════════
+plot(showEMAs ? ema50 : na, "EMA 50", color=color.new(color.teal, 0), linewidth=2)
+plot(showEMAs ? ema200 : na, "EMA 200", color=color.new(color.orange, 0), linewidth=2)
+plot(showEMAs ? vwap : na, "VWAP", color=color.new(color.purple, 0), linewidth=2)
+
+plot(showRiskLines ? longSL : na, "Long SL", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showRiskLines ? longTP1 : na, "Long TP1", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=1)
+plot(showRiskLines ? longTP2 : na, "Long TP2", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+
+plot(showRiskLines ? shortSL : na, "Short SL", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showRiskLines ? shortTP1 : na, "Short TP1", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=1)
+plot(showRiskLines ? shortTP2 : na, "Short TP2", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+
+plotshape(longEntry, title="LONG", text="LONG", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white, size=size.normal)
+plotshape(longExit, title="LONG EXIT", text="LONG\nEXIT", style=shape.labeldown, location=location.abovebar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.small)
+
+plotshape(shortEntry, title="SHORT", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, size=size.normal)
+plotshape(shortExit, title="SHORT EXIT", text="SHORT\nEXIT", style=shape.labelup, location=location.belowbar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.small)
+
+barcolor(inLong ? color.new(color.green, 75) : inShort ? color.new(color.red, 75) : na)
+
+//══════════════════════════════════════
+// 11) WEBHOOK ALARMLARI
+// TradingView alert mesajında {{close}} placeholder'ı TradingView tarafından doldurulur.
+// Header: X-Webhook-Secret = .env içindeki TRADINGVIEW_WEBHOOK_SECRET
+//══════════════════════════════════════
+alertcondition(longEntry, title="LONG", message="Micro Atomic LONG")
+alertcondition(longExit, title="LONG EXIT", message="Micro Atomic LONG EXIT")
+alertcondition(shortEntry, title="SHORT", message="Micro Atomic SHORT")
+alertcondition(shortExit, title="SHORT EXIT", message="Micro Atomic SHORT EXIT")
+
+if longEntry
+    alert('{"symbol":"' + syminfo.ticker + '","side":"long","price":' + str.tostring(close) + ',"confidence":' + str.tostring(math.round(longScorePct)) + ',"risk_score":' + str.tostring(math.round(100 - longScorePct)) + ',"reason":"Micro Atomic LONG"}', alert.freq_once_per_bar_close)
+
+if longExit
+    alert('{"symbol":"' + syminfo.ticker + '","side":"long_exit","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic LONG EXIT"}', alert.freq_once_per_bar_close)
+
+if shortEntry
+    alert('{"symbol":"' + syminfo.ticker + '","side":"short","price":' + str.tostring(close) + ',"confidence":' + str.tostring(math.round(shortScorePct)) + ',"risk_score":' + str.tostring(math.round(100 - shortScorePct)) + ',"reason":"Micro Atomic SHORT"}', alert.freq_once_per_bar_close)
+
+if shortExit
+    alert('{"symbol":"' + syminfo.ticker + '","side":"short_exit","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic SHORT EXIT"}', alert.freq_once_per_bar_close)

@@ -2,3 +2,5 @@ pyautogen[openai]
 python-dotenv
 httpx
 pyyaml
+# Optional live trading: ccxt
+# ccxt  # optional: live Binance trading

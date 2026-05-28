@@ -67,3 +67,32 @@ class ScanReport:
     social_signals: int = 0
     alpha_signals: list[AlphaSignal] = field(default_factory=list)
     summary: str = ""
+
+
+@dataclass
+class TradeDecision:
+    """Risk kontrollu trade karari."""
+    token: TokenData
+    side: str  # buy, sell, hold
+    amount_usd: float = 0.0
+    confidence: float = 0.0
+    risk_score: float = 0.0
+    reason: str = ""
+    stop_loss_price: float = 0.0
+    take_profit_price: float = 0.0
+    source_signal: Optional[AlphaSignal] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class TradeExecution:
+    """Paper/live emir sonucu."""
+    decision: TradeDecision
+    status: str  # executed, skipped, rejected, failed
+    mode: str = "paper"
+    exchange: str = "paper"
+    order_id: str = ""
+    message: str = ""
+    executed_price: float = 0.0
+    executed_amount_usd: float = 0.0
+    executed_at: datetime = field(default_factory=datetime.now)

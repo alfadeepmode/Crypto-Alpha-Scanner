@@ -23,3 +23,29 @@ alerts:
 agents:
   max_consecutive_auto_reply: 3
   temperature: 0.3
+
+trading:
+  enabled: true
+  mode: "paper"  # paper veya live
+  exchange: "paper"
+  base_order_usd: 25
+  max_order_usd: 100
+  max_orders_per_run: 3
+  min_buy_confidence: 75
+  max_buy_risk: 35
+  min_sell_risk: 70
+  min_liquidity_usd: 100000
+  stop_loss_pct: 8
+  take_profit_pct: 18
+  allow_sells_without_position: false
+  paper_trades_path: "data/paper_trades.jsonl"
+  position_state_path: "data/positions.json"
+  allowed_symbols: ["BTC", "ETH", "SOL", "XRP"]
+  binance_testnet: false
+  require_future_simulation: true
+  max_projected_loss_usd: 15
+  min_reward_risk: 1.4
+
+orchestration:
+  log_path: "data/orchestration_log.jsonl"
+  roles: ["SignalIntake", "DecisionAgent", "RiskManager", "FutureSimulator", "ExecutionTool"]
