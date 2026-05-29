@@ -1,0 +1,197 @@
+//@version=5
+strategy("Micro Atomic Crypto Alpha Strategy | Research Backtest", overlay=true, pyramiding=0, initial_capital=1000, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2, process_orders_on_close=false, calc_on_order_fills=true, max_labels_count=500, dynamic_requests=true)
+
+//══════════════════════════════════════
+// 1) ANA AYARLAR
+//══════════════════════════════════════
+groupMain = "1) Ana Ayarlar"
+emaFastLen = input.int(50, "EMA Hızlı", minval=1, group=groupMain)
+emaSlowLen = input.int(200, "EMA Yavaş", minval=2, group=groupMain)
+rsiLen = input.int(7, "RSI Length", minval=1, group=groupMain)
+rsiLongMin = input.float(52, "Long RSI Min", group=groupMain)
+rsiLongMax = input.float(78, "Long RSI Max", group=groupMain)
+rsiShortMin = input.float(22, "Short RSI Min", group=groupMain)
+rsiShortMax = input.float(48, "Short RSI Max", group=groupMain)
+macdFast = input.int(5, "MACD Fast", minval=1, group=groupMain)
+macdSlow = input.int(13, "MACD Slow", minval=2, group=groupMain)
+macdSig = input.int(5, "MACD Signal", minval=1, group=groupMain)
+atrLen = input.int(14, "ATR Length", minval=1, group=groupMain)
+minAtrPct = input.float(0.20, "Minimum ATR %", step=0.05, group=groupMain)
+volLen = input.int(20, "Volume Ortalama", minval=1, group=groupMain)
+minVolRatio = input.float(1.20, "Minimum Volume Ratio", step=0.05, group=groupMain)
+adxLen = input.int(14, "ADX Length", minval=1, group=groupMain)
+adxSmooth = input.int(14, "ADX Smoothing", minval=1, group=groupMain)
+adxThreshold = input.float(20, "Minimum ADX", group=groupMain)
+minScorePct = input.float(80, "Minimum Giriş Skoru %", minval=50, maxval=100, step=5, group=groupMain)
+
+//══════════════════════════════════════
+// 2) MAKRO AYARLAR
+//══════════════════════════════════════
+groupMacro = "2) Makro Filtre"
+useMacroFilter = input.bool(true, "Makro filtre aktif", group=groupMacro)
+minMacroScore = input.float(3.0, "Minimum Makro Skor / 5", minval=0, maxval=5, step=0.5, group=groupMacro)
+btcSymbol = input.symbol("BINANCE:BTCUSDT", "BTC", group=groupMacro)
+btcdSymbol = input.symbol("CRYPTOCAP:BTC.D", "BTC Dominance", group=groupMacro)
+total2Sym = input.symbol("CRYPTOCAP:TOTAL2", "TOTAL2", group=groupMacro)
+total3Sym = input.symbol("CRYPTOCAP:TOTAL3", "TOTAL3", group=groupMacro)
+macroTf = input.timeframe("15", "Makro Timeframe", group=groupMacro)
+
+//══════════════════════════════════════
+// 3) RİSK / ÇIKIŞ
+//══════════════════════════════════════
+groupRisk = "3) Risk ve Çıkış"
+exitMode = input.string("Normal", "Momentum Çıkış Hassasiyeti", options=["Agresif", "Normal", "Güvenli"], group=groupRisk)
+slAtrMult = input.float(1.2, "SL ATR Çarpanı", minval=0.1, step=0.1, group=groupRisk)
+tp1AtrMult = input.float(1.0, "TP1 ATR Çarpanı", minval=0.1, step=0.1, group=groupRisk)
+tp2AtrMultInput = input.float(1.8, "TP2 ATR Çarpanı", minval=0.2, step=0.1, group=groupRisk)
+tp2AtrMult = math.max(tp2AtrMultInput, tp1AtrMult + 0.1)
+qtyPct = input.float(20, "Pozisyon Boyutu % Equity", minval=1, maxval=100, step=1, group=groupRisk)
+showEMAs = input.bool(true, "EMA/VWAP göster", group=groupRisk)
+showRiskLines = input.bool(false, "Aktif SL/TP çizgilerini göster", group=groupRisk)
+
+//══════════════════════════════════════
+// 4) ANA HESAPLAMALAR
+//══════════════════════════════════════
+ema50 = ta.ema(close, emaFastLen)
+ema200 = ta.ema(close, emaSlowLen)
+rsi = ta.rsi(close, rsiLen)
+[macdLine, macdSignal, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
+atr = ta.atr(atrLen)
+atrPct = atr / close * 100
+atrOk = atrPct >= minAtrPct
+volAvg = ta.sma(volume, volLen)
+volRatio = volAvg > 0 ? volume / volAvg : 0.0
+volOk = volRatio >= minVolRatio
+vwap = ta.vwap(hlc3)
+[plusDI, minusDI, adx] = ta.dmi(adxLen, adxSmooth)
+adxOk = adx >= adxThreshold
+trendLong = ema50 > ema200 and close > ema50
+trendShort = ema50 < ema200 and close < ema50
+rsiLongOk = rsi >= rsiLongMin and rsi <= rsiLongMax
+rsiShortOk = rsi >= rsiShortMin and rsi <= rsiShortMax
+vwapLongOk = close > vwap
+vwapShortOk = close < vwap
+macdLongGate = macdLine > macdSignal and macdLine > macdLine[1]
+macdShortGate = macdLine < macdSignal and macdLine < macdLine[1]
+
+//══════════════════════════════════════
+// 5) MAKRO HESAPLAMALAR — lookahead_off
+//══════════════════════════════════════
+f_macroData(sym) =>
+    c = request.security(sym, macroTf, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    e50 = request.security(sym, macroTf, ta.ema(close, emaFastLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    e200 = request.security(sym, macroTf, ta.ema(close, emaSlowLen), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+    [c, e50, e200]
+
+[btcC, btcE50, btcE200] = f_macroData(btcSymbol)
+[btcdC, btcdE50, btcdE200] = f_macroData(btcdSymbol)
+[t2C, t2E50, t2E200] = f_macroData(total2Sym)
+[t3C, t3E50, t3E200] = f_macroData(total3Sym)
+btcBull = btcC > btcE50 and btcE50 > btcE200
+btcBear = btcC < btcE50 and btcE50 < btcE200
+btcdAltPositive = btcdC < btcdE50
+btcdAltNegative = btcdC > btcdE50
+total2Bull = t2C > t2E50 and t2E50 > t2E200
+total2Bear = t2C < t2E50 and t2E50 < t2E200
+total3Bull = t3C > t3E50 and t3E50 > t3E200
+total3Bear = t3C < t3E50 and t3E50 < t3E200
+macroLongScore = 0.0
+macroLongScore += btcBull ? 2.0 : 0.0
+macroLongScore += btcdAltPositive ? 1.0 : 0.0
+macroLongScore += total2Bull ? 1.0 : 0.0
+macroLongScore += total3Bull ? 1.0 : 0.0
+macroShortScore = 0.0
+macroShortScore += btcBear ? 2.0 : 0.0
+macroShortScore += btcdAltNegative ? 1.0 : 0.0
+macroShortScore += total2Bear ? 1.0 : 0.0
+macroShortScore += total3Bear ? 1.0 : 0.0
+macroLongOk = not useMacroFilter or macroLongScore >= minMacroScore
+macroShortOk = not useMacroFilter or macroShortScore >= minMacroScore
+macroLongContribution = useMacroFilter ? macroLongScore / 5.0 : 0.0
+macroShortContribution = useMacroFilter ? macroShortScore / 5.0 : 0.0
+
+//══════════════════════════════════════
+// 6) SKOR SİSTEMİ
+//══════════════════════════════════════
+scoreMax = 5.0 + (useMacroFilter ? 1.0 : 0.0)
+longScore = 0.0
+longScore += trendLong ? 1.0 : 0.0
+longScore += rsiLongOk ? 1.0 : 0.0
+longScore += vwapLongOk ? 1.0 : 0.0
+longScore += volOk ? 1.0 : 0.0
+longScore += adxOk ? 1.0 : 0.0
+longScore += macroLongContribution
+shortScore = 0.0
+shortScore += trendShort ? 1.0 : 0.0
+shortScore += rsiShortOk ? 1.0 : 0.0
+shortScore += vwapShortOk ? 1.0 : 0.0
+shortScore += volOk ? 1.0 : 0.0
+shortScore += adxOk ? 1.0 : 0.0
+shortScore += macroShortContribution
+longScorePct = longScore / scoreMax * 100
+shortScorePct = shortScore / scoreMax * 100
+rawLongSignal = barstate.isconfirmed and atrOk and macroLongOk and longScorePct >= minScorePct and longScore > shortScore and macdLongGate
+rawShortSignal = barstate.isconfirmed and atrOk and macroShortOk and shortScorePct >= minScorePct and shortScore > longScore and macdShortGate
+
+//══════════════════════════════════════
+// 7) ÇIKIŞ MANTIĞI
+//══════════════════════════════════════
+longWeakVWAP = close < vwap
+longWeakMACD = macdHist < macdHist[1]
+longWeakRSI = rsi < 50
+shortWeakVWAP = close > vwap
+shortWeakMACD = macdHist > macdHist[1]
+shortWeakRSI = rsi > 50
+longExitCount = 0
+longExitCount += longWeakVWAP ? 1 : 0
+longExitCount += longWeakMACD ? 1 : 0
+longExitCount += longWeakRSI ? 1 : 0
+shortExitCount = 0
+shortExitCount += shortWeakVWAP ? 1 : 0
+shortExitCount += shortWeakMACD ? 1 : 0
+shortExitCount += shortWeakRSI ? 1 : 0
+exitNeed = exitMode == "Agresif" ? 1 : exitMode == "Normal" ? 2 : 3
+longExitSignal = barstate.isconfirmed and strategy.position_size > 0 and (longExitCount >= exitNeed or rawShortSignal)
+shortExitSignal = barstate.isconfirmed and strategy.position_size < 0 and (shortExitCount >= exitNeed or rawLongSignal)
+
+//══════════════════════════════════════
+// 8) STRATEGY ORDERS
+//══════════════════════════════════════
+longEntry = rawLongSignal and strategy.position_size == 0
+shortEntry = rawShortSignal and strategy.position_size == 0
+qty = math.max(0.0, strategy.equity * qtyPct / 100 / close)
+longStop = strategy.position_size > 0 ? strategy.position_avg_price - atr * slAtrMult : close - atr * slAtrMult
+longTake = strategy.position_size > 0 ? strategy.position_avg_price + atr * tp2AtrMult : close + atr * tp2AtrMult
+shortStop = strategy.position_size < 0 ? strategy.position_avg_price + atr * slAtrMult : close + atr * slAtrMult
+shortTake = strategy.position_size < 0 ? strategy.position_avg_price - atr * tp2AtrMult : close - atr * tp2AtrMult
+
+if longEntry
+    strategy.entry("LONG", strategy.long, qty=qty, alert_message='{"side":"long","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":' + str.tostring(math.round(longScorePct)) + ',"risk_score":' + str.tostring(math.round(100 - longScorePct)) + ',"reason":"Micro Atomic LONG strategy"}')
+
+if shortEntry
+    strategy.entry("SHORT", strategy.short, qty=qty, alert_message='{"side":"short","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":' + str.tostring(math.round(shortScorePct)) + ',"risk_score":' + str.tostring(math.round(100 - shortScorePct)) + ',"reason":"Micro Atomic SHORT strategy"}')
+
+strategy.exit("LONG TP/SL", from_entry="LONG", stop=longStop, limit=longTake, alert_message='{"side":"long_exit","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic LONG TP/SL"}')
+strategy.exit("SHORT TP/SL", from_entry="SHORT", stop=shortStop, limit=shortTake, alert_message='{"side":"short_exit","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic SHORT TP/SL"}')
+
+if longExitSignal
+    strategy.close("LONG", alert_message='{"side":"long_exit","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic LONG momentum exit"}')
+
+if shortExitSignal
+    strategy.close("SHORT", alert_message='{"side":"short_exit","symbol":"' + syminfo.ticker + '","price":' + str.tostring(close) + ',"confidence":70,"risk_score":65,"reason":"Micro Atomic SHORT momentum exit"}')
+
+//══════════════════════════════════════
+// 9) TEMİZ GRAFİK
+//══════════════════════════════════════
+plot(showEMAs ? ema50 : na, "EMA 50", color=color.new(color.teal, 0), linewidth=2)
+plot(showEMAs ? ema200 : na, "EMA 200", color=color.new(color.orange, 0), linewidth=2)
+plot(showEMAs ? vwap : na, "VWAP", color=color.new(color.purple, 0), linewidth=2)
+plot(showRiskLines and strategy.position_size > 0 ? longStop : na, "Long SL", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showRiskLines and strategy.position_size > 0 ? longTake : na, "Long TP", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plot(showRiskLines and strategy.position_size < 0 ? shortStop : na, "Short SL", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showRiskLines and strategy.position_size < 0 ? shortTake : na, "Short TP", color=color.new(color.green, 0), style=plot.style_linebr, linewidth=2)
+plotshape(longEntry, title="LONG", text="LONG", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 0), textcolor=color.white, size=size.normal)
+plotshape(shortEntry, title="SHORT", text="SHORT", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0), textcolor=color.white, size=size.normal)
+plotshape(longExitSignal, title="LONG EXIT", text="LONG\nEXIT", style=shape.labeldown, location=location.abovebar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.small)
+plotshape(shortExitSignal, title="SHORT EXIT", text="SHORT\nEXIT", style=shape.labelup, location=location.belowbar, color=color.new(color.yellow, 0), textcolor=color.black, size=size.small)
+barcolor(strategy.position_size > 0 ? color.new(color.green, 75) : strategy.position_size < 0 ? color.new(color.red, 75) : na)
