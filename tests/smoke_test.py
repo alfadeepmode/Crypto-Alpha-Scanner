@@ -2,8 +2,8 @@
 """Offline smoke test for Crypto Alpha Scanner.
 
 This test avoids live APIs and live trading. It validates the local decision,
-risk, simulation, paper execution, and futures-style signal semantics with
-deterministic sample data.
+risk, simulation, paper execution, futures-style signal semantics, and live
+execution safety guards with deterministic sample data.
 """
 
 from pathlib import Path
@@ -41,6 +41,14 @@ def assert_webhook_normalization() -> None:
         got = normalize_signal_side(raw)
         if got != expected:
             raise AssertionError(f"normalization failed for {raw}: expected {expected}, got {got}")
+
+
+def _restore_env(old_env: dict[str, str | None]) -> None:
+    for key, value in old_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
 
 def main() -> int:
@@ -118,22 +126,32 @@ def main() -> int:
     if sum(1 for d in batch_decisions if d.side == "hold") != 2:
         raise AssertionError("expected 2 held decisions after max_orders_per_run")
 
-    old_env = {"TRADING_MODE": os.environ.get("TRADING_MODE"), "TRADING_EXCHANGE": os.environ.get("TRADING_EXCHANGE"), "LIVE_TRADING": os.environ.get("LIVE_TRADING"), "BINANCE_API_KEY": os.environ.get("BINANCE_API_KEY"), "BINANCE_API_SECRET": os.environ.get("BINANCE_API_SECRET")}
+    old_env = {"TRADING_MODE": os.environ.get("TRADING_MODE"), "TRADING_EXCHANGE": os.environ.get("TRADING_EXCHANGE"), "LIVE_TRADING": os.environ.get("LIVE_TRADING"), "BINANCE_API_KEY": os.environ.get("BINANCE_API_KEY"), "BINANCE_API_SECRET": os.environ.get("BINANCE_API_SECRET"), "EXECUTION_ENV": os.environ.get("EXECUTION_ENV"), "ALLOW_MAINNET": os.environ.get("ALLOW_MAINNET"), "BINANCE_TESTNET": os.environ.get("BINANCE_TESTNET")}
     os.environ["TRADING_MODE"] = "live"
     os.environ["TRADING_EXCHANGE"] = "binance"
     os.environ["LIVE_TRADING"] = "true"
     os.environ.pop("BINANCE_API_KEY", None)
     os.environ.pop("BINANCE_API_SECRET", None)
     try:
+        os.environ["EXECUTION_ENV"] = "testnet"
+        os.environ["BINANCE_TESTNET"] = "true"
         live_decision, live_execution = OrchestrationAgent(config).process_signal(batch_signals[0])
         if live_execution is None or live_execution.status != "rejected" or "BINANCE_API_KEY" not in live_execution.message:
             raise AssertionError("expected missing Binance key rejection before ccxt import")
+
+        os.environ["EXECUTION_ENV"] = "mainnet"
+        os.environ["ALLOW_MAINNET"] = "false"
+        mainnet_decision, mainnet_execution = OrchestrationAgent(config).process_signal(batch_signals[1])
+        if mainnet_execution is None or mainnet_execution.status != "rejected" or "ALLOW_MAINNET" not in mainnet_execution.message:
+            raise AssertionError("expected mainnet lock rejection")
+
+        os.environ["EXECUTION_ENV"] = "testnet"
+        os.environ["BINANCE_TESTNET"] = "false"
+        testnet_decision, testnet_execution = OrchestrationAgent(config).process_signal(batch_signals[2])
+        if testnet_execution is None or testnet_execution.status != "rejected" or "BINANCE_TESTNET" not in testnet_execution.message:
+            raise AssertionError("expected testnet sandbox guard rejection")
     finally:
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        _restore_env(old_env)
 
     print(f"smoke ok: {len(signals)} signals, {len(decisions) + len(batch_decisions)} decisions, {len(executions) + 1 + len(batch_executions)} executions")
     return 0
