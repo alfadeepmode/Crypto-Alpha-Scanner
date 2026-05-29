@@ -13,6 +13,8 @@ analysis:
   ai_model: "gpt-4o"
   min_confidence_score: 65
   risk_tolerance: "medium"  # low, medium, high
+  probability_buy_threshold: 0.62
+  probability_sell_threshold: 0.38
 
 alerts:
   max_alerts_per_run: 5
@@ -28,6 +30,8 @@ trading:
   enabled: true
   mode: "paper"  # paper veya live
   exchange: "paper"
+  execution_env: "testnet"  # testnet veya mainnet; mainnet ek kilit ister
+  allow_mainnet: false
   base_order_usd: 25
   max_order_usd: 100
   max_orders_per_run: 3
@@ -42,7 +46,7 @@ trading:
   paper_trades_path: "data/paper_trades.jsonl"
   position_state_path: "data/positions.json"
   allowed_symbols: ["BTC", "ETH", "SOL", "XRP"]
-  binance_testnet: false
+  binance_testnet: true
   require_future_simulation: true
   max_projected_loss_usd: 15
   min_reward_risk: 1.4
