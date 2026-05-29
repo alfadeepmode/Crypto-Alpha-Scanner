@@ -2,4 +2,7 @@
 .env
 __pycache__/
 data/
+reports/
 *.log
+*.pyc
+.DS_Store
