@@ -38,6 +38,7 @@ trading:
   stop_loss_pct: 8
   take_profit_pct: 18
   allow_sells_without_position: false
+  allow_short_entries: true
   paper_trades_path: "data/paper_trades.jsonl"
   position_state_path: "data/positions.json"
   allowed_symbols: ["BTC", "ETH", "SOL", "XRP"]
@@ -45,6 +46,12 @@ trading:
   require_future_simulation: true
   max_projected_loss_usd: 15
   min_reward_risk: 1.4
+
+  # Research-mode cost model used by FutureSimulator.
+  taker_fee_bps: 5.0
+  slippage_bps: 3.0
+  funding_cost_bps: 1.0
+  liquidation_buffer_min_pct: 6.0
 
 orchestration:
   log_path: "data/orchestration_log.jsonl"
