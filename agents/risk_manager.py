@@ -25,6 +25,10 @@ class RiskManager:
                 approved.append(decision)
                 continue
 
+            signal_side = getattr(decision, "signal_side", "")
+            position_side = getattr(decision, "position_side", "long")
+            reduce_only = bool(getattr(decision, "reduce_only", False))
+
             if decision.token.symbol.upper() not in self.allowed_symbols:
                 approved.append(self._reject(decision, "Sembol trading allowlist disinda"))
                 continue
@@ -37,13 +41,13 @@ class RiskManager:
                 approved.append(self._reject(decision, "Emir tutari risk limitleri disinda"))
                 continue
 
-            if decision.side == "buy" and decision.token.liquidity_usd < self.min_liquidity_usd:
+            if signal_side in {"LONG", "SHORT"} and decision.token.liquidity_usd < self.min_liquidity_usd:
                 approved.append(self._reject(decision, "Likidite trading icin yetersiz"))
                 continue
 
-            if decision.side == "sell" and not self.allow_sells_without_position:
-                if not self.position_store.has_position(decision.token.symbol):
-                    approved.append(self._reject(decision, "Pozisyon yok; sell emri kapali"))
+            if reduce_only and not self.allow_sells_without_position:
+                if not self.position_store.has_position(decision.token.symbol, position_side=position_side):
+                    approved.append(self._reject(decision, f"{position_side} pozisyon yok; reduce-only emri kapali"))
                     continue
 
             approved.append(decision)
@@ -55,4 +59,6 @@ class RiskManager:
         decision.side = "hold"
         decision.amount_usd = 0.0
         decision.reason = f"Risk reddi: {reason}"
+        if hasattr(decision, "reject_reason"):
+            decision.reject_reason = reason
         return decision
