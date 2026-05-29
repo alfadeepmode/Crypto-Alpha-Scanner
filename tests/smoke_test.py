@@ -2,7 +2,8 @@
 """Offline smoke test for Crypto Alpha Scanner.
 
 This test avoids live APIs and live trading. It validates the local decision,
-risk, simulation, and paper execution pipeline with deterministic sample data.
+risk, simulation, paper execution, and futures-style signal semantics with
+deterministic sample data.
 """
 
 from pathlib import Path
@@ -18,9 +19,33 @@ from agents.filter_agent import FilterAgent
 from agents.orchestration_agent import OrchestrationAgent
 from models.schemas import AlphaSignal, TokenData
 from main import build_sample_raw_data, load_config
+from tradingview_webhook import normalize_signal_side
+
+
+def _token(symbol: str = "BTC") -> TokenData:
+    return TokenData(address=symbol, symbol=symbol, name=symbol, network="binance", price_usd=100.0, liquidity_usd=1_000_000.0, volume_24h=1_000_000.0)
+
+
+def assert_webhook_normalization() -> None:
+    cases = {
+        "long": ("buy", "LONG"),
+        "buy": ("buy", "LONG"),
+        "short": ("short", "SHORT"),
+        "sell": ("sell", "LONG_EXIT"),
+        "long_exit": ("sell", "LONG_EXIT"),
+        "short_exit": ("short_exit", "SHORT_EXIT"),
+        "exit": ("short_exit", "SHORT_EXIT"),
+        "unknown": ("watch", "HOLD"),
+    }
+    for raw, expected in cases.items():
+        got = normalize_signal_side(raw)
+        if got != expected:
+            raise AssertionError(f"normalization failed for {raw}: expected {expected}, got {got}")
 
 
 def main() -> int:
+    assert_webhook_normalization()
+
     config = load_config()
     raw = build_sample_raw_data()
     filtered = FilterAgent().run(raw)
@@ -56,9 +81,28 @@ def main() -> int:
     )
     sell_decision, sell_execution = OrchestrationAgent(config).process_signal(sell_signal)
     if sell_decision.side != "sell":
-        raise AssertionError(f"expected sell decision with existing position, got {sell_decision.side}: {sell_decision.reason}")
+        raise AssertionError(f"expected sell decision with existing long position, got {sell_decision.side}: {sell_decision.reason}")
     if sell_execution is None or sell_execution.status != "executed":
         raise AssertionError("expected executed paper sell")
+
+    futures_config = deepcopy(config)
+    futures_config["trading"]["allowed_symbols"] = ["BTC", "ETH", "SOL", "XRP", "ADA"]
+    futures_config["trading"]["paper_trades_path"] = "data/smoke_futures_paper.jsonl"
+    futures_config["trading"]["position_state_path"] = "data/smoke_futures_positions.json"
+
+    short_signal = AlphaSignal(token=_token("BTC"), signal_type="smoke_short", confidence=90, risk_score=20, action="short", reasoning="smoke short")
+    short_decision, short_execution = OrchestrationAgent(futures_config).process_signal(short_signal)
+    if getattr(short_decision, "signal_side", "") != "SHORT" or short_decision.side != "sell":
+        raise AssertionError(f"expected SHORT sell decision, got {short_decision.side}/{getattr(short_decision, 'signal_side', '')}: {short_decision.reason}")
+    if short_execution is None or short_execution.status != "executed":
+        raise AssertionError("expected executed paper short entry")
+
+    short_exit_signal = AlphaSignal(token=_token("BTC"), signal_type="smoke_short_exit", confidence=80, risk_score=30, action="short_exit", reasoning="smoke short exit")
+    short_exit_decision, short_exit_execution = OrchestrationAgent(futures_config).process_signal(short_exit_signal)
+    if getattr(short_exit_decision, "signal_side", "") != "SHORT_EXIT" or short_exit_decision.side != "buy":
+        raise AssertionError(f"expected SHORT_EXIT buy decision, got {short_exit_decision.side}/{getattr(short_exit_decision, 'signal_side', '')}: {short_exit_decision.reason}")
+    if short_exit_execution is None or short_exit_execution.status != "executed":
+        raise AssertionError("expected executed paper short exit")
 
     batch_config = deepcopy(config)
     batch_config["trading"]["allowed_symbols"] = ["BTC", "ETH", "SOL", "XRP", "ADA"]
@@ -67,8 +111,7 @@ def main() -> int:
     batch_config["trading"]["position_state_path"] = "data/smoke_batch_positions.json"
     batch_signals = []
     for symbol in ["BTC", "ETH", "SOL", "XRP", "ADA"]:
-        batch_token = TokenData(address=symbol, symbol=symbol, name=symbol, network="binance", price_usd=100.0, liquidity_usd=1_000_000.0, volume_24h=1_000_000.0)
-        batch_signals.append(AlphaSignal(token=batch_token, signal_type="batch_limit", confidence=90, risk_score=20, action="buy", reasoning="batch limit smoke"))
+        batch_signals.append(AlphaSignal(token=_token(symbol), signal_type="batch_limit", confidence=90, risk_score=20, action="buy", reasoning="batch limit smoke"))
     batch_decisions, batch_executions = OrchestrationAgent(batch_config).process_signals(batch_signals)
     if len(batch_executions) != 3:
         raise AssertionError(f"expected max 3 executions, got {len(batch_executions)}")
