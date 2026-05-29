@@ -14,11 +14,8 @@ from urllib.parse import urlparse
 import yaml
 from dotenv import load_dotenv
 
-from agents.risk_manager import RiskManager
-from agents.future_simulator import FutureSimulator
 from agents.orchestration_agent import OrchestrationAgent
 from models.schemas import AlphaSignal, TokenData
-from agents.decision_agent import DecisionAgent
 from tools.exchange_executor import ExchangeExecutor
 
 load_dotenv()
@@ -29,17 +26,27 @@ def load_config() -> dict:
         return yaml.safe_load(f)
 
 
+def normalize_signal_side(raw_side: str) -> tuple[str, str]:
+    """Return backend action and normalized futures side.
+
+    The action field stays backward-compatible with the existing DecisionAgent.
+    normalized_side preserves the exact TradingView intent for logs/tests.
+    """
+    side = str(raw_side or "watch").strip().lower()
+    if side in {"long", "buy"}:
+        return "buy", "LONG"
+    if side in {"short"}:
+        return "short", "SHORT"
+    if side in {"long_exit", "sell"}:
+        return "sell", "LONG_EXIT"
+    if side in {"short_exit", "exit"}:
+        return "short_exit", "SHORT_EXIT"
+    return "watch", "HOLD"
+
+
 def build_signal(payload: dict) -> AlphaSignal:
     symbol = str(payload.get("symbol") or payload.get("ticker") or "").replace("USDT", "").replace("USD", "").upper()
-    side = str(payload.get("side") or payload.get("action") or "watch").lower()
-    if side in {"long", "buy"}:
-        action = "buy"
-    elif side in {"short", "sell", "long_exit"}:
-        action = "sell"
-    elif side in {"short_exit", "exit"}:
-        action = "watch"
-    else:
-        action = "watch"
+    action, normalized_side = normalize_signal_side(payload.get("side") or payload.get("action") or "watch")
 
     price = float(payload.get("price") or payload.get("close") or 0)
     confidence = float(payload.get("confidence") or 80)
@@ -60,7 +67,7 @@ def build_signal(payload: dict) -> AlphaSignal:
         confidence=confidence,
         risk_score=risk,
         action=action,
-        reasoning=str(payload.get("reason") or "TradingView alert"),
+        reasoning=str(payload.get("reason") or f"TradingView alert {normalized_side}"),
         detected_at=datetime.now(),
     )
 
