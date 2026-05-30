@@ -65,6 +65,7 @@ Eklenen scriptler:
 scripts/fetch_binance_um.py
 scripts/fetch_funding.py
 scripts/run_backtest.py
+scripts/validate_backtest_report.py
 ```
 
 ### 1) Binance USD-M kline indir
@@ -104,6 +105,19 @@ python scripts/run_backtest.py --csv data/klines/BTCUSDT_5m_200d.csv --symbol BT
 ```text
 reports/BTCUSDT_5m_200d_backtest.json
 ```
+
+### 4) Bilimsel kabul kapısını çalıştır
+
+```bash
+python scripts/validate_backtest_report.py --report reports/BTCUSDT_5m_200d_backtest.json
+```
+
+Varsayılan kabul koşulları:
+
+- profit factor >= 1.15
+- max drawdown <= 20%
+- trade count >= 100
+- expectancy > 0
 
 ## Varsayımlar
 
