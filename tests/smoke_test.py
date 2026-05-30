@@ -2,8 +2,8 @@
 """Offline smoke test for Crypto Alpha Scanner.
 
 This test avoids live APIs and live trading. It validates the local decision,
-risk, simulation, paper execution, futures-style signal semantics, and live
-execution safety guards with deterministic sample data.
+risk, simulation, paper execution, futures-style signal semantics, live
+execution safety guards, and deterministic alpha probability outputs.
 """
 
 from pathlib import Path
@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agents.ai_analyst import AIAnalystAgent
+from agents.alpha_model import HeuristicAlphaModel
 from agents.filter_agent import FilterAgent
 from agents.orchestration_agent import OrchestrationAgent
 from models.schemas import AlphaSignal, TokenData
@@ -23,7 +24,7 @@ from tradingview_webhook import normalize_signal_side
 
 
 def _token(symbol: str = "BTC") -> TokenData:
-    return TokenData(address=symbol, symbol=symbol, name=symbol, network="binance", price_usd=100.0, liquidity_usd=1_000_000.0, volume_24h=1_000_000.0)
+    return TokenData(address=symbol, symbol=symbol, name=symbol, network="binance", price_usd=100.0, liquidity_usd=1_000_000.0, volume_24h=1_000_000.0, is_verified=True)
 
 
 def assert_webhook_normalization() -> None:
@@ -43,6 +44,22 @@ def assert_webhook_normalization() -> None:
             raise AssertionError(f"normalization failed for {raw}: expected {expected}, got {got}")
 
 
+def assert_alpha_probability_model() -> None:
+    model = HeuristicAlphaModel()
+    strong = model.score(_token("BTC"))
+    weak = model.score(TokenData(address="LOW", symbol="LOW", name="LOW", network="binance", price_usd=1.0, liquidity_usd=1_000.0, volume_24h=500.0))
+    if not (0.0 <= strong.prob_up <= 1.0 and 0.0 <= strong.prob_down <= 1.0):
+        raise AssertionError("alpha probabilities must be bounded 0..1")
+    if not strong.feature_hash.startswith("haf1:"):
+        raise AssertionError("expected stable feature hash")
+    if strong.confidence <= weak.confidence:
+        raise AssertionError("strong liquid token should score above weak illiquid token")
+    signal = AIAnalystAgent().analyze_token(_token("ETH"))
+    for attr in ["prob_up", "prob_down", "feature_hash", "model_version", "features"]:
+        if not hasattr(signal, attr):
+            raise AssertionError(f"AIAnalyst signal missing {attr}")
+
+
 def _restore_env(old_env: dict[str, str | None]) -> None:
     for key, value in old_env.items():
         if value is None:
@@ -53,6 +70,7 @@ def _restore_env(old_env: dict[str, str | None]) -> None:
 
 def main() -> int:
     assert_webhook_normalization()
+    assert_alpha_probability_model()
 
     config = load_config()
     raw = build_sample_raw_data()
