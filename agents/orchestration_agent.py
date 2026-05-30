@@ -1,7 +1,6 @@
 """Orchestration Agent - role-based trade task pipeline."""
 
 import json
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -89,8 +88,25 @@ class OrchestrationAgent:
             "at": datetime.now().isoformat(),
             "symbol": signal.token.symbol,
             "signal_action": signal.action,
+            "signal_type": signal.signal_type,
+            "prob_up": getattr(signal, "prob_up", None),
+            "prob_down": getattr(signal, "prob_down", None),
+            "prob_no_trade": getattr(signal, "prob_no_trade", None),
+            "model_version": getattr(signal, "model_version", ""),
+            "feature_hash": getattr(signal, "feature_hash", ""),
+            "features": getattr(signal, "features", {}),
             "decision": decision.side,
+            "signal_side": getattr(decision, "signal_side", ""),
+            "position_side": getattr(decision, "position_side", ""),
+            "reduce_only": bool(getattr(decision, "reduce_only", False)),
             "amount_usd": decision.amount_usd,
+            "expected_fee_usd": getattr(decision, "expected_fee_usd", 0.0),
+            "expected_slippage_usd": getattr(decision, "expected_slippage_usd", 0.0),
+            "expected_funding_usd": getattr(decision, "expected_funding_usd", 0.0),
+            "expected_total_cost_usd": getattr(decision, "expected_total_cost_usd", 0.0),
+            "expected_net_profit_usd": getattr(decision, "expected_net_profit_usd", 0.0),
+            "expected_reward_risk": getattr(decision, "expected_reward_risk", 0.0),
+            "reject_reason": getattr(decision, "reject_reason", ""),
             "execution_status": execution.status if execution else "skipped",
             "execution_mode": execution.mode if execution else "none",
             "trace": trace,
