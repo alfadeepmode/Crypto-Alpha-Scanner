@@ -35,7 +35,7 @@ trading:
   base_order_usd: 25
   max_order_usd: 100
   max_orders_per_run: 3
-  min_buy_confidence: 75
+  min_buy_confidence: 65  # aligned with analysis.min_confidence_score (prob_buy_threshold*100 + margin)
   max_buy_risk: 35
   min_sell_risk: 70
   min_liquidity_usd: 100000

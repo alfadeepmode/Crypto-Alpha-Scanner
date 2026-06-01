@@ -50,8 +50,9 @@ class FutureSimulator:
         if price <= 0 or amount_usd <= 0:
             return SimulationResult(False, "Fiyat veya emir tutari gecersiz")
 
-        if decision.side == "sell" and not decision.stop_loss_price and not decision.take_profit_price:
-            return SimulationResult(True, "Pozisyon azaltma icin simule edilecek yeni risk yok")
+        reduce_only = bool(getattr(decision, "reduce_only", False))
+        if reduce_only and not decision.stop_loss_price and not decision.take_profit_price:
+            return SimulationResult(True, "Reduce-only cikis: yeni pozisyon riski yok")
 
         if decision.stop_loss_price <= 0 or decision.take_profit_price <= 0:
             return SimulationResult(False, "Stop-loss/take-profit yok")
